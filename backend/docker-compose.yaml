@@ -1,0 +1,75 @@
+# For development purposes only
+version: '3.8'
+services:
+  dynamodb:
+    image: amazon/dynamodb-local
+    container_name: dynamodb-local
+    ports:
+      - "8000:8000"  # aws --endpoint-url http://localhost:8000 dynamodb list-tables
+    volumes:
+      - ./.data/dynamo:/home/dynamodblocal/data
+    command: -jar DynamoDBLocal.jar -sharedDb -dbPath /home/dynamodblocal/data
+  backend:
+    image: cosmtrek/air  # live reload
+    working_dir: /live-reload
+    ports:
+      - "8080:8080"
+    environment:
+      AWS_DYNAMO_TABLE_NAME: 'BlogTable'
+      AWS_REGION: 'us-east-1'
+      AWS_ACCESS_KEY_ID: 'fakeAccessKeyId'
+      AWS_SECRET_ACCESS_KEY: 'fakeSecretAccessKey'
+      AWS_ENDPOINT_URL_DYNAMODB: 'http://dynamodb:8000'
+      OTEL_EXPORTER_OTLP_ENDPOINT: 'http://otel-collector:4317'
+      OTEL_EXPORTER_OTLP_PROTOCOL: "grpc"
+      OTEL_RESOURCE_ATTRIBUTES: "service.name=api.cloudificando.com,service.version=0.0.1,deployment.environment=dev"
+    volumes:
+      - ./:/live-reload/
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.113.0
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./otel-config-dev.yaml:/otel-config.yaml
+    command: ["--config", "/otel-config.yaml"]
+    environment:
+        OTLP_CLOUDIFICANDO_ENDPOINT: ${OTLP_CLOUDIFICANDO_ENDPOINT}
+        OTLP_CLOUDIFICANDO_TOKEN: ${OTLP_CLOUDIFICANDO_TOKEN}
+  dynamodb-init:
+    image: amazon/aws-cli:2.13.32
+    depends_on:
+      - dynamodb
+    environment:
+      AWS_ACCESS_KEY_ID: "fakeAccessKeyId"  # Provide dummy keys for local DynamoDB
+      AWS_SECRET_ACCESS_KEY: "fakeSecretAccessKey"
+      AWS_DEFAULT_REGION: "us-east-1"
+    entrypoint: >
+      bash -c '
+        aws dynamodb create-table \
+        --endpoint-url http://dynamodb:8000 \
+        --table-name BlogTable \
+        --attribute-definitions \
+        AttributeName=PK,AttributeType=S \
+        AttributeName=SK,AttributeType=S \
+        AttributeName=GSI1PK,AttributeType=S \
+        AttributeName=GSI1SK,AttributeType=S \
+        --key-schema \
+        AttributeName=PK,KeyType=HASH \
+        AttributeName=SK,KeyType=RANGE \
+        --provisioned-throughput \
+        ReadCapacityUnits=5,WriteCapacityUnits=5 \
+        --global-secondary-indexes \
+        "[
+            {
+              \"IndexName\": \"GSI1\",
+              \"KeySchema\": [
+                {\"AttributeName\": \"GSI1PK\", \"KeyType\": \"HASH\"},
+                {\"AttributeName\": \"GSI1SK\", \"KeyType\": \"RANGE\"}
+              ],
+              \"Projection\": {\"ProjectionType\": \"ALL\"},
+              \"ProvisionedThroughput\": {\"ReadCapacityUnits\": 5, \"WriteCapacityUnits\": 5}
+            }
+          ]"
+        '
+

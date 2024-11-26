@@ -1,0 +1,9 @@
+
+# sst
+.sst
+.env
+.idea
+.sst
+.data
+tmp
+build
