@@ -63,15 +63,9 @@ func newLoggerProvider(ctx context.Context) (*log.LoggerProvider, error) {
 	if err != nil {
 		return nil, err
 	}
-	//consoleExporter, err := stdoutlog.New(stdoutlog.WithPrettyPrint(), stdoutlog.WithoutTimestamps())
-	//if err != nil {
-	//	return nil, err
-	//}
 	processor := log.NewBatchProcessor(exporter)
-	//consoleProcessor := log.NewSimpleProcessor(consoleExporter)
 	provider := log.NewLoggerProvider(
 		log.WithProcessor(processor),
-		//log.WithProcessor(consoleProcessor),
 		log.WithResource(resource.NewWithAttributes(
 			semconv.SchemaURL,
 		)),

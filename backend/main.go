@@ -3,33 +3,31 @@ package main
 
 import (
 	"context"
-	"log"
-	"log/slog"
-	"os"
-
 	aws "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/gin-gonic/gin"
 	slogmulti "github.com/samber/slog-multi"
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
+	"log"
+	"log/slog"
+	"os"
 )
 
 func main() {
 	ctx := context.Background()
+	// Initialize OpenTelemetry providers
 	traceProvider, loggerProvider, err := NewOtelProviders(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer traceProvider.Shutdown(ctx)
 	defer loggerProvider.Shutdown(ctx)
-
-	// Logger setup
-	consoleHandler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{AddSource: true})
-	otelHandler := otelslog.NewHandler(os.Getenv("PROD_DOMAIN"), otelslog.WithLoggerProvider(loggerProvider))
-	slog.SetDefault(slog.New(slogmulti.Fanout(consoleHandler, otelHandler)))
-
+	// Initialize the logger
+	consoleSlogHandler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{AddSource: true})
+	otelSlogHandler := otelslog.NewHandler(os.Getenv("PROD_DOMAIN"), otelslog.WithLoggerProvider(loggerProvider))
+	slog.SetDefault(slog.New(slogmulti.Fanout(consoleSlogHandler, otelSlogHandler)))
+	slog.Info("Cold start")
 	// Initialize DynamoDB client
 	awsConfig, err := aws.LoadDefaultConfig(ctx)
 	if err != nil {
@@ -37,16 +35,30 @@ func main() {
 	}
 	otelaws.AppendMiddlewares(&awsConfig.APIOptions)
 	db := dynamodb.NewFromConfig(awsConfig)
-
-	slog.Info("Cold start")
+	// Initialize the migration
+	tableName := os.Getenv("AWS_DYNAMO_TABLE_NAME")
+	migration := NewMigration(db, tableName)
+	// Initialize the BlogRepository
+	blogRepository := NewBlogRepository(db, tableName)
+	// Initialize the BlogController
+	blogController := NewBlogController(db, tableName, migration, blogRepository)
 	router := gin.New()
-	router.Use(otelgin.Middleware(os.Getenv("PROD_DOMAIN")))
-
+	// Register middlewares
+	router.Use(OtelGinMiddleware())
+	router.Use(CdnCacheMiddleware())
+	router.Use(CorsMiddleware())
 	// Register endpoints
-	router.GET("/blog/posts", GetPostsHandler(db))
-	router.GET("/blog/tags", GetTagsHandler(db))
-	router.POST("/blog/posts", UpsertPostHandler(db))
-
+	router.GET("/blog/posts", blogController.GetPostsHandler)
+	router.GET("/blog/tags", blogController.GetTagsHandler)
+	router.PUT("/blog/posts", blogController.UpsertPostHandler)
+	router.DELETE("/blog/posts/:slug", blogController.DeletePostHandler)
+	router.POST("/blog/posts/hardsync", blogController.HardSyncHandler)
+	// Run the migrations
+	err = migration.EnsureDbMigrations(ctx)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to run migrations", "Error", err)
+		log.Fatal(err)
+	}
 	// Run the server
 	router.Run()
 }

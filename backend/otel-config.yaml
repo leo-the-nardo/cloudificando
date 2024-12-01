@@ -4,16 +4,10 @@ receivers:
     protocols:
       grpc:
         endpoint: '0.0.0.0:4317'
-      http:
-        endpoint: '0.0.0.0:4318'
 
 processors:
   decouple:
-  batch:
-
 exporters:
-  debug:
-    verbosity: detailed
   otlp/cloudificando:
     endpoint: ${env:OTLP_CLOUDIFICANDO_ENDPOINT}
     headers:
@@ -23,16 +17,13 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [batch, decouple]
-      exporters: [debug,otlp/cloudificando]
+      processors: [decouple]
+      exporters: [otlp/cloudificando]
     metrics:
       receivers: [otlp]
-      processors: [batch, decouple]
-      exporters: [debug,otlp/cloudificando]
+      processors: [decouple]
+      exporters: [otlp/cloudificando]
     logs:
       receivers: [otlp]
-      processors: [batch, decouple]
-      exporters: [debug ,otlp/cloudificando]
-  telemetry:
-    metrics:
-      address: localhost:8888
+      processors: [decouple]
+      exporters: [otlp/cloudificando]

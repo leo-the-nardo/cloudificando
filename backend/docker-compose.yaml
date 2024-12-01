@@ -15,7 +15,9 @@ services:
     ports:
       - "8080:8080"
     environment:
-      AWS_DYNAMO_TABLE_NAME: 'BlogTable'
+      AWS_DYNAMO_TABLE_NAME: ${AWS_DYNAMO_TABLE_NAME}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      PROD_DOMAIN: ${PROD_DOMAIN}
       AWS_REGION: 'us-east-1'
       AWS_ACCESS_KEY_ID: 'fakeAccessKeyId'
       AWS_SECRET_ACCESS_KEY: 'fakeSecretAccessKey'
@@ -25,17 +27,6 @@ services:
       OTEL_RESOURCE_ATTRIBUTES: "service.name=api.cloudificando.com,service.version=0.0.1,deployment.environment=dev"
     volumes:
       - ./:/live-reload/
-  otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.113.0
-    ports:
-      - "4317:4317"
-      - "4318:4318"
-    volumes:
-      - ./otel-config-dev.yaml:/otel-config.yaml
-    command: ["--config", "/otel-config.yaml"]
-    environment:
-        OTLP_CLOUDIFICANDO_ENDPOINT: ${OTLP_CLOUDIFICANDO_ENDPOINT}
-        OTLP_CLOUDIFICANDO_TOKEN: ${OTLP_CLOUDIFICANDO_TOKEN}
   dynamodb-init:
     image: amazon/aws-cli:2.13.32
     depends_on:
@@ -52,6 +43,7 @@ services:
         --attribute-definitions \
         AttributeName=PK,AttributeType=S \
         AttributeName=SK,AttributeType=S \
+        AttributeName=SK_LSI1,AttributeType=S \
         AttributeName=GSI1PK,AttributeType=S \
         AttributeName=GSI1SK,AttributeType=S \
         --key-schema \
@@ -59,6 +51,17 @@ services:
         AttributeName=SK,KeyType=RANGE \
         --provisioned-throughput \
         ReadCapacityUnits=5,WriteCapacityUnits=5 \
+        --local-secondary-indexes \
+        "[
+            {
+              \"IndexName\": \"LSI1\",
+              \"KeySchema\": [
+                {\"AttributeName\": \"PK\", \"KeyType\": \"HASH\"},
+                {\"AttributeName\": \"SK_LSI1\", \"KeyType\": \"RANGE\"}
+              ],
+              \"Projection\": {\"ProjectionType\": \"ALL\"}
+            }
+          ]" \
         --global-secondary-indexes \
         "[
             {
@@ -73,3 +76,14 @@ services:
           ]"
         '
 
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.113.0
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./otel-config-dev.yaml:/otel-config.yaml
+    command: ["--config", "/otel-config.yaml"]
+    environment:
+      OTLP_CLOUDIFICANDO_ENDPOINT: ${OTLP_CLOUDIFICANDO_ENDPOINT}
+      OTLP_CLOUDIFICANDO_TOKEN: ${OTLP_CLOUDIFICANDO_TOKEN}
