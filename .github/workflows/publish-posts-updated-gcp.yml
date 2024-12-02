@@ -1,0 +1,43 @@
+name: Publish Post Updates
+
+on:
+  push:
+    paths:
+      - '**/*.mdx'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: npm install gray-matter @google-cloud/pubsub
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Set up environment
+        run: |
+          echo "CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)" >> $GITHUB_ENV
+        env:
+          CHANGED_FILES: ""
+
+      - name: Publish updates to GCP
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_TOPIC_NAME: ${{ env.GCP_TOPIC_NAME }}
+          CHANGED_FILES: ${{ env.CHANGED_FILES }}
+        run: node github-actions-scripts/publish-post-update.js
