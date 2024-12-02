@@ -2,6 +2,8 @@
 package main
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/gin-gonic/gin"
 	"log/slog"
@@ -62,6 +64,73 @@ func (bc *BlogController) GetTagsHandler(c *gin.Context) {
 	}
 	// Respond with the tags and their counts array outside object
 	c.JSON(200, result)
+}
+func (bc *BlogController) PostsUpdatedGcpSubscriptionHandler(c *gin.Context) {
+	ctx := c.Request.Context()
+	repository := bc.repository
+	var event EventPostUpdatedRequest
+
+	// Bind JSON payload
+	if err := c.ShouldBindJSON(&event); err != nil {
+		c.AbortWithStatusJSON(400, gin.H{
+			"error": "Invalid request payload",
+		})
+		return
+	}
+
+	// Handle event types with a switch statement
+	switch event.Message.Attributes.EventType {
+	case "POST_CREATED", "META_UPDATED":
+		var post Post
+		dataDecoded, _ := base64.StdEncoding.DecodeString(event.Message.Data)
+		if err := json.Unmarshal(dataDecoded, &post); err != nil {
+			c.AbortWithStatusJSON(400, gin.H{
+				"error": "Invalid post data",
+			})
+			return
+		}
+		if err := repository.UpsertPost(ctx, post); err != nil {
+			slog.Error("Failed to upsert post", "Error", err)
+			c.AbortWithStatusJSON(500, gin.H{
+				"error": "Failed to upsert post",
+			})
+			return
+		}
+		c.JSON(200, gin.H{
+			"message": "Post upserted successfully",
+		})
+		slog.Info("Post upserted successfully", "Slug", post.Slug)
+
+	case "POST_DELETED":
+		slug := event.Message.Attributes.Slug
+		if slug == "" {
+			c.AbortWithStatusJSON(400, gin.H{
+				"error": "Missing slug attribute",
+			})
+			return
+		}
+		if err := repository.DeletePost(ctx, slug); err != nil {
+			slog.Error("Failed to delete post", "Error", err)
+			c.AbortWithStatusJSON(500, gin.H{
+				"error": "Failed to delete post",
+			})
+			return
+		}
+		c.JSON(200, gin.H{
+			"message": "Post deleted successfully",
+		})
+		slog.Info("Post deleted successfully", "Slug", slug)
+	case "CONTENT_UPDATED":
+		c.JSON(200, gin.H{
+			"message": "ok",
+		})
+	default:
+		c.AbortWithStatusJSON(400, gin.H{
+			"error": "Invalid event type",
+		})
+		return
+	}
+	_ = repository.InvalidateCdnCache(ctx, "/blog/*")
 }
 
 func (bc *BlogController) UpsertPostHandler(c *gin.Context) {

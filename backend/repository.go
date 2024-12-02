@@ -8,35 +8,55 @@ import (
 	"fmt"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
+	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
+	cloudfrontType "github.com/aws/aws-sdk-go-v2/service/cloudfront/types"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	dynamoType "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"log/slog"
+	"os"
 	"sort"
 	"sync"
+	"time"
 )
 
 type BlogRepository struct {
-	Db        *dynamodb.Client
-	TableName string
+	Db                 *dynamodb.Client
+	tableName          string
+	cloudfrontDistroId string
+	cdn                *cloudfront.Client
 }
 
-func NewBlogRepository(db *dynamodb.Client, tableName string) *BlogRepository {
-	return &BlogRepository{
-		Db:        db,
-		TableName: tableName,
+func NewBlogRepository(ctx context.Context, db *dynamodb.Client, tn string, cdn *cloudfront.Client, ps *ssm.Client) (
+	*BlogRepository, error,
+) {
+	ssmDistroIdPath := os.Getenv("AWS_SSM_CLOUDFRONT_DISTRO_ID_PATH")
+	cloudfrontDistroId, err := ps.GetParameter(ctx, &ssm.GetParameterInput{
+		Name: &ssmDistroIdPath,
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to get cloudfront distro id parameter", "Error", err)
+		return nil, err
 	}
+
+	return &BlogRepository{
+		Db:                 db,
+		tableName:          tn,
+		cloudfrontDistroId: *cloudfrontDistroId.Parameter.Value,
+		cdn:                cdn,
+	}, nil
 }
 func (r *BlogRepository) UpsertPost(ctx context.Context, post Post) error {
 	db := r.Db
-	tableName := r.TableName
+	tableName := r.tableName
 	// Insert Tag Metadata Conditionally
 	for _, tag := range post.Tags {
 		// Prepare TagMetadata item
-		tagMetadataItem := map[string]types.AttributeValue{
-			"PK":   &types.AttributeValueMemberS{Value: "TAG"},
-			"SK":   &types.AttributeValueMemberS{Value: "TAG#" + tag},
-			"slug": &types.AttributeValueMemberS{Value: tag},
-			"Type": &types.AttributeValueMemberS{Value: "TAG"},
+		tagMetadataItem := map[string]dynamoType.AttributeValue{
+			"PK":   &dynamoType.AttributeValueMemberS{Value: "TAG"},
+			"SK":   &dynamoType.AttributeValueMemberS{Value: "TAG#" + tag},
+			"slug": &dynamoType.AttributeValueMemberS{Value: tag},
+			"Type": &dynamoType.AttributeValueMemberS{Value: "TAG"},
 			// Add other metadata fields as needed
 		}
 
@@ -50,7 +70,7 @@ func (r *BlogRepository) UpsertPost(ctx context.Context, post Post) error {
 		// Attempt to put the TagMetadata item
 		_, err := db.PutItem(ctx, putItemInput)
 		if err != nil {
-			var cce *types.ConditionalCheckFailedException
+			var cce *dynamoType.ConditionalCheckFailedException
 			if errors.As(err, &cce) {
 				// Tag metadata already exists; ignore the error
 				slog.Info("Tag metadata already exists, ignoring:", "Tag", tag)
@@ -65,22 +85,22 @@ func (r *BlogRepository) UpsertPost(ctx context.Context, post Post) error {
 	}
 
 	// Begin Transaction for Upserting Post and Tag-Post Mappings
-	var transactItems []types.TransactWriteItem
+	var transactItems []dynamoType.TransactWriteItem
 
 	// Upsert Post by Creation Date
-	postByDateItem := map[string]types.AttributeValue{
-		"PK":          &types.AttributeValueMemberS{Value: "POST"},
-		"SK":          &types.AttributeValueMemberS{Value: fmt.Sprintf("POST#%s", post.Slug)},
-		"SK_LSI1":     &types.AttributeValueMemberS{Value: fmt.Sprintf("CREATED_AT#%s#POST#%s", post.CreatedAt, post.Slug)},
-		"title":       &types.AttributeValueMemberS{Value: post.Title},
-		"tags":        &types.AttributeValueMemberL{Value: stringSliceToDynamoDB(post.Tags)},
-		"created_at":  &types.AttributeValueMemberS{Value: post.CreatedAt},
-		"description": &types.AttributeValueMemberS{Value: post.Description},
-		"slug":        &types.AttributeValueMemberS{Value: post.Slug},
-		"Type":        &types.AttributeValueMemberS{Value: "POST"},
+	postByDateItem := map[string]dynamoType.AttributeValue{
+		"PK":          &dynamoType.AttributeValueMemberS{Value: "POST"},
+		"SK":          &dynamoType.AttributeValueMemberS{Value: fmt.Sprintf("POST#%s", post.Slug)},
+		"SK_LSI1":     &dynamoType.AttributeValueMemberS{Value: fmt.Sprintf("CREATED_AT#%s#POST#%s", post.CreatedAt, post.Slug)},
+		"title":       &dynamoType.AttributeValueMemberS{Value: post.Title},
+		"tags":        &dynamoType.AttributeValueMemberL{Value: stringSliceToDynamoDB(post.Tags)},
+		"created_at":  &dynamoType.AttributeValueMemberS{Value: post.CreatedAt},
+		"description": &dynamoType.AttributeValueMemberS{Value: post.Description},
+		"slug":        &dynamoType.AttributeValueMemberS{Value: post.Slug},
+		"Type":        &dynamoType.AttributeValueMemberS{Value: "POST"},
 	}
-	transactItems = append(transactItems, types.TransactWriteItem{
-		Put: &types.Put{
+	transactItems = append(transactItems, dynamoType.TransactWriteItem{
+		Put: &dynamoType.Put{
 			TableName: &tableName,
 			Item:      postByDateItem,
 		},
@@ -89,20 +109,20 @@ func (r *BlogRepository) UpsertPost(ctx context.Context, post Post) error {
 	// Upsert Tag-Post Mapping
 	for _, tag := range post.Tags {
 		// Tag-Post Item
-		tagPostItem := map[string]types.AttributeValue{
-			"PK":          &types.AttributeValueMemberS{Value: fmt.Sprintf("TAG#%s", tag)},
-			"SK":          &types.AttributeValueMemberS{Value: fmt.Sprintf("POST#%s", post.Slug)},
-			"SK_LSI1":     &types.AttributeValueMemberS{Value: fmt.Sprintf("CREATED_AT#%s#POST#%s", post.CreatedAt, post.Slug)},
-			"title":       &types.AttributeValueMemberS{Value: post.Title},
-			"tags":        &types.AttributeValueMemberL{Value: stringSliceToDynamoDB(post.Tags)},
-			"created_at":  &types.AttributeValueMemberS{Value: post.CreatedAt},
-			"description": &types.AttributeValueMemberS{Value: post.Description},
-			"slug":        &types.AttributeValueMemberS{Value: post.Slug},
-			"Type":        &types.AttributeValueMemberS{Value: "TAG_POST"},
+		tagPostItem := map[string]dynamoType.AttributeValue{
+			"PK":          &dynamoType.AttributeValueMemberS{Value: fmt.Sprintf("TAG#%s", tag)},
+			"SK":          &dynamoType.AttributeValueMemberS{Value: fmt.Sprintf("POST#%s", post.Slug)},
+			"SK_LSI1":     &dynamoType.AttributeValueMemberS{Value: fmt.Sprintf("CREATED_AT#%s#POST#%s", post.CreatedAt, post.Slug)},
+			"title":       &dynamoType.AttributeValueMemberS{Value: post.Title},
+			"tags":        &dynamoType.AttributeValueMemberL{Value: stringSliceToDynamoDB(post.Tags)},
+			"created_at":  &dynamoType.AttributeValueMemberS{Value: post.CreatedAt},
+			"description": &dynamoType.AttributeValueMemberS{Value: post.Description},
+			"slug":        &dynamoType.AttributeValueMemberS{Value: post.Slug},
+			"Type":        &dynamoType.AttributeValueMemberS{Value: "TAG_POST"},
 		}
 
-		transactItems = append(transactItems, types.TransactWriteItem{
-			Put: &types.Put{
+		transactItems = append(transactItems, dynamoType.TransactWriteItem{
+			Put: &dynamoType.Put{
 				TableName: &tableName,
 				Item:      tagPostItem,
 			},
@@ -121,7 +141,7 @@ func (r *BlogRepository) UpsertPost(ctx context.Context, post Post) error {
 
 func (r *BlogRepository) UpsertPostsBatch(ctx context.Context, posts []Post) error {
 	db := r.Db
-	tableName := r.TableName
+	tableName := r.tableName
 
 	var tagsSet = make(map[string]string) //  deduplicate tags
 	for _, post := range posts {
@@ -130,21 +150,21 @@ func (r *BlogRepository) UpsertPostsBatch(ctx context.Context, posts []Post) err
 		}
 	}
 	// Insert Tag Metadata
-	var tagBatchItems []types.WriteRequest
+	var tagBatchItems []dynamoType.WriteRequest
 	for tag := range tagsSet {
-		tagBatchItems = append(tagBatchItems, types.WriteRequest{
-			PutRequest: &types.PutRequest{
-				Item: map[string]types.AttributeValue{
-					"PK":   &types.AttributeValueMemberS{Value: "TAG"},
-					"SK":   &types.AttributeValueMemberS{Value: "TAG#" + tag},
-					"slug": &types.AttributeValueMemberS{Value: tag},
-					"Type": &types.AttributeValueMemberS{Value: "TAG"},
+		tagBatchItems = append(tagBatchItems, dynamoType.WriteRequest{
+			PutRequest: &dynamoType.PutRequest{
+				Item: map[string]dynamoType.AttributeValue{
+					"PK":   &dynamoType.AttributeValueMemberS{Value: "TAG"},
+					"SK":   &dynamoType.AttributeValueMemberS{Value: "TAG#" + tag},
+					"slug": &dynamoType.AttributeValueMemberS{Value: tag},
+					"Type": &dynamoType.AttributeValueMemberS{Value: "TAG"},
 				},
 			},
 		})
 	}
 	_, err := db.BatchWriteItem(ctx, &dynamodb.BatchWriteItemInput{
-		RequestItems: map[string][]types.WriteRequest{
+		RequestItems: map[string][]dynamoType.WriteRequest{
 			tableName: tagBatchItems,
 		},
 	})
@@ -152,22 +172,22 @@ func (r *BlogRepository) UpsertPostsBatch(ctx context.Context, posts []Post) err
 		return err
 	}
 	// Upsert Posts and Tag-Post Mappings
-	var transactItems []types.TransactWriteItem
+	var transactItems []dynamoType.TransactWriteItem
 	for _, post := range posts {
 		// Upsert Post by Creation Date
-		postByDateItem := map[string]types.AttributeValue{
-			"PK":          &types.AttributeValueMemberS{Value: "POST"},
-			"SK":          &types.AttributeValueMemberS{Value: fmt.Sprintf("POST#%s", post.Slug)},
-			"SK_LSI1":     &types.AttributeValueMemberS{Value: fmt.Sprintf("CREATED_AT#%s#POST#%s", post.CreatedAt, post.Slug)},
-			"title":       &types.AttributeValueMemberS{Value: post.Title},
-			"tags":        &types.AttributeValueMemberL{Value: stringSliceToDynamoDB(post.Tags)},
-			"created_at":  &types.AttributeValueMemberS{Value: post.CreatedAt},
-			"description": &types.AttributeValueMemberS{Value: post.Description},
-			"slug":        &types.AttributeValueMemberS{Value: post.Slug},
-			"Type":        &types.AttributeValueMemberS{Value: "POST"},
+		postByDateItem := map[string]dynamoType.AttributeValue{
+			"PK":          &dynamoType.AttributeValueMemberS{Value: "POST"},
+			"SK":          &dynamoType.AttributeValueMemberS{Value: fmt.Sprintf("POST#%s", post.Slug)},
+			"SK_LSI1":     &dynamoType.AttributeValueMemberS{Value: fmt.Sprintf("CREATED_AT#%s#POST#%s", post.CreatedAt, post.Slug)},
+			"title":       &dynamoType.AttributeValueMemberS{Value: post.Title},
+			"tags":        &dynamoType.AttributeValueMemberL{Value: stringSliceToDynamoDB(post.Tags)},
+			"created_at":  &dynamoType.AttributeValueMemberS{Value: post.CreatedAt},
+			"description": &dynamoType.AttributeValueMemberS{Value: post.Description},
+			"slug":        &dynamoType.AttributeValueMemberS{Value: post.Slug},
+			"Type":        &dynamoType.AttributeValueMemberS{Value: "POST"},
 		}
-		transactItems = append(transactItems, types.TransactWriteItem{
-			Put: &types.Put{
+		transactItems = append(transactItems, dynamoType.TransactWriteItem{
+			Put: &dynamoType.Put{
 				TableName: &tableName,
 				Item:      postByDateItem,
 			},
@@ -176,20 +196,20 @@ func (r *BlogRepository) UpsertPostsBatch(ctx context.Context, posts []Post) err
 		// Upsert Tag-Post Mapping
 		for _, tag := range post.Tags {
 			// Tag-Post Item
-			tagPostItem := map[string]types.AttributeValue{
-				"PK":          &types.AttributeValueMemberS{Value: fmt.Sprintf("TAG#%s", tag)},
-				"SK":          &types.AttributeValueMemberS{Value: fmt.Sprintf("POST#%s", post.Slug)},
-				"SK_LSI1":     &types.AttributeValueMemberS{Value: fmt.Sprintf("CREATED_AT#%s#POST#%s", post.CreatedAt, post.Slug)},
-				"title":       &types.AttributeValueMemberS{Value: post.Title},
-				"tags":        &types.AttributeValueMemberL{Value: stringSliceToDynamoDB(post.Tags)},
-				"created_at":  &types.AttributeValueMemberS{Value: post.CreatedAt},
-				"description": &types.AttributeValueMemberS{Value: post.Description},
-				"slug":        &types.AttributeValueMemberS{Value: post.Slug},
-				"Type":        &types.AttributeValueMemberS{Value: "TAG_POST"},
+			tagPostItem := map[string]dynamoType.AttributeValue{
+				"PK":          &dynamoType.AttributeValueMemberS{Value: fmt.Sprintf("TAG#%s", tag)},
+				"SK":          &dynamoType.AttributeValueMemberS{Value: fmt.Sprintf("POST#%s", post.Slug)},
+				"SK_LSI1":     &dynamoType.AttributeValueMemberS{Value: fmt.Sprintf("CREATED_AT#%s#POST#%s", post.CreatedAt, post.Slug)},
+				"title":       &dynamoType.AttributeValueMemberS{Value: post.Title},
+				"tags":        &dynamoType.AttributeValueMemberL{Value: stringSliceToDynamoDB(post.Tags)},
+				"created_at":  &dynamoType.AttributeValueMemberS{Value: post.CreatedAt},
+				"description": &dynamoType.AttributeValueMemberS{Value: post.Description},
+				"slug":        &dynamoType.AttributeValueMemberS{Value: post.Slug},
+				"Type":        &dynamoType.AttributeValueMemberS{Value: "TAG_POST"},
 			}
 
-			transactItems = append(transactItems, types.TransactWriteItem{
-				Put: &types.Put{
+			transactItems = append(transactItems, dynamoType.TransactWriteItem{
+				Put: &dynamoType.Put{
 					TableName: &tableName,
 					Item:      tagPostItem,
 				},
@@ -207,7 +227,7 @@ func (r *BlogRepository) UpsertPostsBatch(ctx context.Context, posts []Post) err
 	return nil
 }
 func (r *BlogRepository) GetPosts(ctx context.Context, limit int, tag, cursor string) (*ListPosts, error) {
-	tableName := r.TableName
+	tableName := r.tableName
 	db := r.Db
 
 	var pk string
@@ -219,8 +239,8 @@ func (r *BlogRepository) GetPosts(ctx context.Context, limit int, tag, cursor st
 	input := &dynamodb.QueryInput{
 		TableName:              &tableName,
 		KeyConditionExpression: aws.String("PK = :pk"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk": &types.AttributeValueMemberS{Value: pk},
+		ExpressionAttributeValues: map[string]dynamoType.AttributeValue{
+			":pk": &dynamoType.AttributeValueMemberS{Value: pk},
 		},
 		Limit:            aws.Int32(int32(limit)),
 		IndexName:        aws.String("LSI1"),
@@ -262,16 +282,16 @@ func (r *BlogRepository) GetPosts(ctx context.Context, limit int, tag, cursor st
 }
 func (r *BlogRepository) GetTags(ctx context.Context) (*[]TagWithCount, error) {
 	db := r.Db
-	tableName := r.TableName
+	tableName := r.tableName
 	// Define the initial query to fetch all tag slugs
 	queryInput := &dynamodb.QueryInput{
-		Select:                 types.SelectSpecificAttributes,
+		Select:                 dynamoType.SelectSpecificAttributes,
 		ProjectionExpression:   aws.String("slug"),
 		TableName:              aws.String(tableName),
 		KeyConditionExpression: aws.String("PK = :pk AND begins_with(SK, :sk_prefix)"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":pk":        &types.AttributeValueMemberS{Value: "TAG"},
-			":sk_prefix": &types.AttributeValueMemberS{Value: "TAG#"},
+		ExpressionAttributeValues: map[string]dynamoType.AttributeValue{
+			":pk":        &dynamoType.AttributeValueMemberS{Value: "TAG"},
+			":sk_prefix": &dynamoType.AttributeValueMemberS{Value: "TAG#"},
 		},
 	}
 
@@ -305,10 +325,10 @@ func (r *BlogRepository) GetTags(ctx context.Context) (*[]TagWithCount, error) {
 			countInput := &dynamodb.QueryInput{
 				TableName:              &tableName,
 				KeyConditionExpression: aws.String("PK = :pk"),
-				ExpressionAttributeValues: map[string]types.AttributeValue{
-					":pk": &types.AttributeValueMemberS{Value: fmt.Sprintf("TAG#%s", tag)},
+				ExpressionAttributeValues: map[string]dynamoType.AttributeValue{
+					":pk": &dynamoType.AttributeValueMemberS{Value: fmt.Sprintf("TAG#%s", tag)},
 				},
-				Select: types.SelectCount,
+				Select: dynamoType.SelectCount,
 			}
 
 			countResult, err := db.Query(ctx, countInput)
@@ -353,13 +373,13 @@ func (r *BlogRepository) GetTags(ctx context.Context) (*[]TagWithCount, error) {
 
 func (r *BlogRepository) DeletePost(ctx context.Context, slug string) error {
 	db := r.Db
-	tableName := r.TableName
+	tableName := r.tableName
 	// Fetch the post from the database to get the tags
 	getItemInput := &dynamodb.GetItemInput{
 		TableName: aws.String(tableName),
-		Key: map[string]types.AttributeValue{
-			"PK": &types.AttributeValueMemberS{Value: "POST"},
-			"SK": &types.AttributeValueMemberS{Value: fmt.Sprintf("POST#%s", slug)},
+		Key: map[string]dynamoType.AttributeValue{
+			"PK": &dynamoType.AttributeValueMemberS{Value: "POST"},
+			"SK": &dynamoType.AttributeValueMemberS{Value: fmt.Sprintf("POST#%s", slug)},
 		},
 	}
 
@@ -383,15 +403,15 @@ func (r *BlogRepository) DeletePost(ctx context.Context, slug string) error {
 	}
 
 	// Begin Transaction for deleting Post and Tag-Post Mappings
-	var transactItems []types.TransactWriteItem
+	var transactItems []dynamoType.TransactWriteItem
 
 	// Delete Post item
-	deletePostItem := types.TransactWriteItem{
-		Delete: &types.Delete{
+	deletePostItem := dynamoType.TransactWriteItem{
+		Delete: &dynamoType.Delete{
 			TableName: aws.String(tableName),
-			Key: map[string]types.AttributeValue{
-				"PK": &types.AttributeValueMemberS{Value: "POST"},
-				"SK": &types.AttributeValueMemberS{Value: fmt.Sprintf("POST#%s", slug)},
+			Key: map[string]dynamoType.AttributeValue{
+				"PK": &dynamoType.AttributeValueMemberS{Value: "POST"},
+				"SK": &dynamoType.AttributeValueMemberS{Value: fmt.Sprintf("POST#%s", slug)},
 			},
 		},
 	}
@@ -400,12 +420,12 @@ func (r *BlogRepository) DeletePost(ctx context.Context, slug string) error {
 
 	// Delete Tag-Post mappings
 	for _, tag := range post.Tags {
-		deleteMapping := types.TransactWriteItem{
-			Delete: &types.Delete{
+		deleteMapping := dynamoType.TransactWriteItem{
+			Delete: &dynamoType.Delete{
 				TableName: aws.String(tableName),
-				Key: map[string]types.AttributeValue{
-					"PK": &types.AttributeValueMemberS{Value: fmt.Sprintf("TAG#%s", tag)},
-					"SK": &types.AttributeValueMemberS{Value: fmt.Sprintf("POST#%s", slug)},
+				Key: map[string]dynamoType.AttributeValue{
+					"PK": &dynamoType.AttributeValueMemberS{Value: fmt.Sprintf("TAG#%s", tag)},
+					"SK": &dynamoType.AttributeValueMemberS{Value: fmt.Sprintf("POST#%s", slug)},
 				},
 			},
 		}
@@ -422,10 +442,40 @@ func (r *BlogRepository) DeletePost(ctx context.Context, slug string) error {
 	}
 	return nil
 }
-func stringSliceToDynamoDB(slice []string) []types.AttributeValue {
-	var avList []types.AttributeValue
+
+func (r *BlogRepository) InvalidateCdnCache(ctx context.Context, path string) error {
+	distributionID := r.cloudfrontDistroId
+	cdn := r.cdn
+	// Generate a unique caller reference
+	callerReference := fmt.Sprintf("blogrepository-invalidate-%d", time.Now().Unix())
+
+	// Create the invalidation input
+	invalidationInput := &cloudfront.CreateInvalidationInput{
+		DistributionId: &distributionID,
+		InvalidationBatch: &cloudfrontType.InvalidationBatch{
+			CallerReference: &callerReference,
+			Paths: &cloudfrontType.Paths{
+				Quantity: aws.Int32(1),
+				Items:    []string{path},
+			},
+		},
+	}
+
+	// Send the invalidation request
+	output, err := cdn.CreateInvalidation(context.TODO(), invalidationInput)
+	if err != nil {
+		return fmt.Errorf("failed to create invalidation: %w", err)
+	}
+
+	// Log or return the invalidation details
+	slog.InfoContext(ctx, "Invalidation created", "InvalidationID", *output.Invalidation.Id)
+	return nil
+
+}
+func stringSliceToDynamoDB(slice []string) []dynamoType.AttributeValue {
+	var avList []dynamoType.AttributeValue
 	for _, tag := range slice {
-		avList = append(avList, &types.AttributeValueMemberS{Value: tag})
+		avList = append(avList, &dynamoType.AttributeValueMemberS{Value: tag})
 	}
 	return avList
 }
@@ -438,17 +488,17 @@ type Cursor struct {
 }
 
 // encodeCursor encodes the ExclusiveStartKey into a base64 string
-func encodeCursor(key map[string]types.AttributeValue) (string, error) {
+func encodeCursor(key map[string]dynamoType.AttributeValue) (string, error) {
 	slog.Info("key", "key", key)
-	pkAttr, ok := key["PK"].(*types.AttributeValueMemberS)
+	pkAttr, ok := key["PK"].(*dynamoType.AttributeValueMemberS)
 	if !ok {
 		return "", errors.New("invalid cursor: missing or invalid PK")
 	}
-	skAttr, ok := key["SK"].(*types.AttributeValueMemberS)
+	skAttr, ok := key["SK"].(*dynamoType.AttributeValueMemberS)
 	if !ok {
 		return "", errors.New("invalid cursor: missing or invalid SK")
 	}
-	sklsi1Attr, ok := key["SK_LSI1"].(*types.AttributeValueMemberS)
+	sklsi1Attr, ok := key["SK_LSI1"].(*dynamoType.AttributeValueMemberS)
 	if !ok {
 		return "", errors.New("invalid cursor: missing or invalid SK_LSI1")
 	}
@@ -467,8 +517,8 @@ func encodeCursor(key map[string]types.AttributeValue) (string, error) {
 	return encoded, nil
 }
 
-// decodeCursor decodes the base64 encoded cursor into a map[string]types.AttributeValue
-func decodeCursor(cursor string) (map[string]types.AttributeValue, error) {
+// decodeCursor decodes the base64 encoded cursor into a map[string]dynamoType.AttributeValue
+func decodeCursor(cursor string) (map[string]dynamoType.AttributeValue, error) {
 	decoded, err := base64.StdEncoding.DecodeString(cursor)
 	if err != nil {
 		return nil, errors.New("invalid cursor encoding")
@@ -480,10 +530,10 @@ func decodeCursor(cursor string) (map[string]types.AttributeValue, error) {
 		return nil, errors.New("invalid cursor format")
 	}
 
-	key := map[string]types.AttributeValue{
-		"PK":      &types.AttributeValueMemberS{Value: c.PK},
-		"SK":      &types.AttributeValueMemberS{Value: c.SK},
-		"SK_LSI1": &types.AttributeValueMemberS{Value: c.SKLSI1},
+	key := map[string]dynamoType.AttributeValue{
+		"PK":      &dynamoType.AttributeValueMemberS{Value: c.PK},
+		"SK":      &dynamoType.AttributeValueMemberS{Value: c.SK},
+		"SK_LSI1": &dynamoType.AttributeValueMemberS{Value: c.SKLSI1},
 	}
 
 	return key, nil

@@ -4,7 +4,9 @@ package main
 import (
 	"context"
 	aws "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	"github.com/gin-gonic/gin"
 	slogmulti "github.com/samber/slog-multi"
 	"go.opentelemetry.io/contrib/bridges/otelslog"
@@ -39,11 +41,17 @@ func main() {
 	tableName := os.Getenv("AWS_DYNAMO_TABLE_NAME")
 	migration := NewMigration(db, tableName)
 	// Initialize the BlogRepository
-	blogRepository := NewBlogRepository(db, tableName)
+	parameterStore := ssm.NewFromConfig(awsConfig)
+	cdn := cloudfront.NewFromConfig(awsConfig)
+	blogRepository, err := NewBlogRepository(ctx, db, tableName, cdn, parameterStore)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to initialize BlogRepository", "Error", err)
+		log.Fatal(err)
+	}
 	// Initialize the BlogController
 	blogController := NewBlogController(db, tableName, migration, blogRepository)
 	router := gin.New()
-	// Register middlewares
+	// Register Global middlewares
 	router.Use(OtelGinMiddleware())
 	router.Use(CdnCacheMiddleware())
 	router.Use(CorsMiddleware())
@@ -51,6 +59,7 @@ func main() {
 	router.GET("/blog/posts", blogController.GetPostsHandler)
 	router.GET("/blog/tags", blogController.GetTagsHandler)
 	router.PUT("/blog/posts", blogController.UpsertPostHandler)
+	router.POST("/blog/events/posts-updated", GcpPubSubMiddleware(), blogController.UpsertPostHandler)
 	router.DELETE("/blog/posts/:slug", blogController.DeletePostHandler)
 	router.POST("/blog/posts/hardsync", blogController.HardSyncHandler)
 	// Run the migrations

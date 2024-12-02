@@ -2,12 +2,19 @@ package main
 
 import "net/http"
 
-type UpsertPostRequest struct {
-	Title       string   `json:"title" binding:"required"`
-	Tags        []string `json:"tags" binding:"required"`
-	Slug        string   `json:"slug" binding:"required"`
-	Description string   `json:"description" binding:"required"`
-	CreatedAt   string   `json:"created_at" binding:"required"`
+// EventPostUpdatedRequest is the gcp pub/sub push-based subscription body send by gcp
+type EventPostUpdatedRequest struct {
+	Message struct {
+		Data        string `json:"data" binding:"required"`
+		MessageId   string `json:"message_id" binding:"required"`
+		PublishTime string `json:"publish_time" binding:"required"`
+		OrderingKey string `json:"ordering_key"`
+		Attributes  struct {
+			EventType string `json:"eventType" binding:"required"` // "POST_CREATED" ,"POST_DELETED", "CONTENT_UPDATED", "META_UPDATED"
+			Slug      string `json:"slug" binding:"required"`
+		} `json:"attributes" binding:"required"`
+	} `json:"message" binding:"required"`
+	Subscription string `json:"subscription" binding:"required"`
 }
 type HardSyncRequest struct {
 	Posts []Post `json:"posts" binding:"required"`
@@ -28,11 +35,11 @@ func BadRequestError(message string) *RestError {
 }
 
 type Post struct {
-	Title       string   `json:"title" dynamodbav:"title"`
-	Tags        []string `json:"tags" dynamodbav:"tags"`
-	CreatedAt   string   `json:"created_at" dynamodbav:"created_at"`
-	Description string   `json:"description" dynamodbav:"description"`
-	Slug        string   `json:"slug" dynamodbav:"slug"`
+	Title       string   `json:"title" dynamodbav:"title" binding:"required"`
+	Tags        []string `json:"tags" dynamodbav:"tags" binding:"required"`
+	CreatedAt   string   `json:"created_at" dynamodbav:"created_at" binding:"required"`
+	Description string   `json:"description" dynamodbav:"description" binding:"required"`
+	Slug        string   `json:"slug" dynamodbav:"slug" binding:"required"`
 }
 
 type TagWithCount struct {
