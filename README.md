@@ -11,4 +11,4 @@ As a **free-tier sommelier**, I designed this architecture to cost **$0.00** for
 | GCP Pub/Sub            | Message transfer           | 20 GB (~20,000,000 messages) per month  |
 | GCP Egress             | Data transfer              | 200 GB per month                        |
 
-![loading-diagram](blog_arch.png)
+![loading-diagram](_diagram.png)
