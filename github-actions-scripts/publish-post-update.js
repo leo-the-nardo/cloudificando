@@ -63,7 +63,7 @@ async function publishEvent(slug, frontmatter, eventType) {
   // const dataBuffer = Buffer.from(JSON.stringify({ message}));
 
   try {
-    pubSubClient.topic(topicName).publishMessage({data: Buffer.from(JSON.stringify(message.data)) , attributes: message.attributes})
+    await pubSubClient.topic(topicName).publishMessage({data: Buffer.from(JSON.stringify(message.data)) , attributes: message.attributes})
     console.log(`Message published for slug: ${slug}`);
   } catch (error) {
     console.log(`Failed to publish message for slug: ${slug}`, error);
@@ -83,6 +83,7 @@ async function publishEvent(slug, frontmatter, eventType) {
 
     console.log(`Detected change in ${file}: Event Type - ${eventType}`);
     await publishEvent(slug, frontmatter, eventType);
+    console.log("published event for slug", slug)
   }
   console.log("Published.")
 })();
