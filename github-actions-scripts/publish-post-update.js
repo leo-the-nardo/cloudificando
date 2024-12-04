@@ -54,20 +54,19 @@ async function publishEvent(slug, frontmatter, eventType) {
 
   const message = {
     data: post,
-    message_id: `${slug}-${Date.now()}`,
-    publish_time: new Date().toISOString(),
     attributes: {
       eventType,
       slug,
     },
   };
 
-  const dataBuffer = Buffer.from(JSON.stringify({ message, subscription: "your-subscription-name" }));
+  // const dataBuffer = Buffer.from(JSON.stringify({ message}));
 
   try {
-    await pubSubClient.topic(topicName).publishMessage({ data: dataBuffer });
+    pubSubClient.topic(topicName).publishMessage({data: JSON.stringify(message.data) , attributes: message.attributes})
     console.log(`Message published for slug: ${slug}`);
   } catch (error) {
+    console.log(`Failed to publish message for slug: ${slug}`, error);
     console.error(`Failed to publish message for slug: ${slug}`, error);
     process.exit(1);
   }
