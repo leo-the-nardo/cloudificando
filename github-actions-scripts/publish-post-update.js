@@ -63,7 +63,7 @@ async function publishEvent(slug, frontmatter, eventType) {
   // const dataBuffer = Buffer.from(JSON.stringify({ message}));
 
   try {
-    pubSubClient.topic(topicName).publishMessage({data: JSON.stringify(message.data) , attributes: message.attributes})
+    pubSubClient.topic(topicName).publishMessage({data: Buffer.from(JSON.stringify(message.data)) , attributes: message.attributes})
     console.log(`Message published for slug: ${slug}`);
   } catch (error) {
     console.log(`Failed to publish message for slug: ${slug}`, error);
