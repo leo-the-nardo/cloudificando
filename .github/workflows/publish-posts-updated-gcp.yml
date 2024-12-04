@@ -37,8 +37,10 @@ jobs:
         run: git fetch --prune --unshallow
 
       - name: Set up environment
-        run: echo "CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)" >> $GITHUB_ENV
-
+        run: |
+          CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD | tr '\n' ',')
+          echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_ENV
+          
       - name: Debug CHANGED_FILES
         run: echo "Changed files ${{ env.CHANGED_FILES }}"
 
