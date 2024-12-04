@@ -75,7 +75,7 @@ async function publishEvent(slug, frontmatter, eventType) {
 // Main script
 (async () => {
   const changedFiles = process.env.CHANGED_FILES.split(',').filter((file) => file.endsWith('.mdx'));
-
+  console.log("changed files:",changedFiles)
   for (const file of changedFiles) {
     const slug = path.basename(file, '.mdx');
     const frontmatter = extractFrontmatter(file);

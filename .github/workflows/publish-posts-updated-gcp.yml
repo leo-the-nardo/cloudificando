@@ -33,11 +33,14 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
 
+      - name: Fetch full history
+        run: git fetch --prune --unshallow
+
       - name: Set up environment
-        run: |
-          echo "CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)" >> $GITHUB_ENV
-        env:
-          CHANGED_FILES: ""
+        run: echo "CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)" >> $GITHUB_ENV
+
+      - name: Debug CHANGED_FILES
+        run: echo "Changed files ${{ env.CHANGED_FILES }}"
 
       - name: Publish updates to GCP
         env:
