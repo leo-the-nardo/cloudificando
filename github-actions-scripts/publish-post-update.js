@@ -85,4 +85,5 @@ async function publishEvent(slug, frontmatter, eventType) {
     console.log(`Detected change in ${file}: Event Type - ${eventType}`);
     await publishEvent(slug, frontmatter, eventType);
   }
+  console.log("Published.")
 })();
