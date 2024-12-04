@@ -42,6 +42,6 @@ jobs:
       - name: Publish updates to GCP
         env:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          GCP_TOPIC_NAME: ${{ env.GCP_TOPIC_NAME }}
+          GCP_TOPIC_NAME: ${{ secrets.GCP_TOPIC_NAME }}
           CHANGED_FILES: ${{ env.CHANGED_FILES }}
         run: node github-actions-scripts/publish-post-update.js
