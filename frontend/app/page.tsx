@@ -1,13 +1,13 @@
 import { buttonVariants } from "@/components/ui/button";
 import { siteConfig } from "@/config/site";
-import { cn, sortPosts } from "@/lib/utils";
-import { posts } from "#site/content";
+import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { PostItem } from "@/components/post-item";
 import Image from "next/image";
+import { fetchPosts } from "@/lib/posts";
 
-export default function Home() {
-  const latestPosts = sortPosts(posts).slice(0, 5);
+export default async function Home() {
+  const latestPosts = await fetchPosts();
   return (
     <>
       <section className=" relative space-y-6 pb-8 pt-6 md:pb-12  lg:py-24 lg:pb-14">
@@ -23,7 +23,7 @@ export default function Home() {
               </p>
             <div className="flex flex-col gap-4 justify-center sm:flex-row">
             <Link
-              href="/blog"
+              href="/posts"
               className={cn(buttonVariants({ size: "lg" }), "w-full sm:w-fit")}
             >
               View my blog
@@ -48,18 +48,16 @@ export default function Home() {
           Latest Posts
         </h2>
         <ul className="flex flex-col">
-          {latestPosts.map((post) => (
-            post.published && (
+          {latestPosts.items.map((post) => (
               <li key={post.slug} className="first:border-t first:border-border">
                 <PostItem
                   slug={post.slug}
                   title={post.title}
-                  description={post.description}
-                  date={post.date}
+                  description={post.description!}
+                  date={post.created_at}
                   tags={post.tags}
                 />
               </li>
-            )
           ))}
         </ul>
       </section>
