@@ -25,8 +25,33 @@ jobs:
       - name: Install dependencies
         run: npm install gray-matter @google-cloud/pubsub
 
-      - name: Authenticate to Google Cloud
-        id: auth
+      - name: Authenticate to AWS using OIDC
+        id: aws-auth
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          # inline-session-policy: >-
+          #   {
+          #     "Version": "2012-10-17",
+          #     "Statement": [
+          #       {
+          #         "Sid": "SSMReadAccess",
+          #         "Effect": "Allow",
+          #         "Action": "ssm:GetParameter",
+          #         "Resource": "arn:aws:ssm:*:${{ secrets.AWS_ACCOUNT_ID }}:parameter/${{ secrets.GCP_TOPIC_PARAMETER_PATH }}"
+          #       }
+          #     ]
+          #   }
+
+      - name: Fetch GCP Topic Name from SSM
+        id: fetch-topic-name
+        run: |
+          GCP_TOPIC_NAME=$(aws ssm get-parameter --name "${{ secrets.GCP_TOPIC_PARAMETER_PATH }}" --region ${{ secrets.AWS_REGION }} --query "Parameter.Value" --output text)
+          echo "GCP_TOPIC_NAME=$GCP_TOPIC_NAME" >> $GITHUB_ENV
+
+      - name: Authenticate to Google Cloud using OIDC
+        id: gcp-auth
         uses: google-github-actions/auth@v2
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
@@ -47,6 +72,6 @@ jobs:
       - name: Publish updates to GCP
         env:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          GCP_TOPIC_NAME: ${{ secrets.GCP_TOPIC_NAME }}
+          GCP_TOPIC_NAME: ${{ env.GCP_TOPIC_NAME }}
           CHANGED_FILES: ${{ env.CHANGED_FILES }}
         run: node github-actions-scripts/publish-post-update.js
