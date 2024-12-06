@@ -49,10 +49,10 @@ function determineEventTypes(filePath) {
 // Publish event to Pub/Sub
 async function publishEvent(slug, frontmatter, eventType) {
   const post = {
-    title: frontmatter.title || null,
-    tags: frontmatter.tags || [],
-    created_at: frontmatter.date || null,
-    description: frontmatter.description || null,
+    title: frontmatter ? frontmatter.title : "",
+    tags: frontmatter ? frontmatter.tags : [""],
+    created_at: frontmatter ? frontmatter.date : "",
+    description: frontmatter ? frontmatter.description : "",
     slug,
   };
 
@@ -81,11 +81,11 @@ async function publishEvent(slug, frontmatter, eventType) {
   console.log("Changed files:", changedFiles);
 
   for (const file of changedFiles) {
+    const slug = path.basename(file, '.mdx');
     if (!fs.existsSync(file)) {
-      console.log(`File does not exist: ${file}`);
+      await publishEvent(slug, null, "POST_DELETED");
       continue;
     }
-    const slug = path.basename(file, '.mdx');
     const frontmatter = extractFrontmatter(file);
     const eventTypes = determineEventTypes(file);
 
