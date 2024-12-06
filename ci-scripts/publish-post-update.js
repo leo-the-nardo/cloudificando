@@ -21,20 +21,17 @@ function extractFrontmatter(filePath) {
 function determineEventType(filePath) {
   const slug = path.basename(filePath, '.mdx');
   try {
-    const creationOutput = execSync(`git log --diff-filter=A -- ${filePath}`).toString().trim();
+    const creationOutput = execSync(`git diff --diff-filter=M --name-only HEAD~1`).toString().trim().includes(filePath);
     if (creationOutput) {
       return 'POST_CREATED';
     }
-
     if (!fs.existsSync(filePath)) {
       return 'POST_DELETED';
     }
-
     const diffOutput = execSync(`git diff HEAD~1 HEAD -- ${filePath}`).toString().trim();
     if (diffOutput.includes('title') || diffOutput.includes('tags') || diffOutput.includes('description')) {
       return 'META_UPDATED';
     }
-
     return 'CONTENT_UPDATED';
   } catch (error) {
     console.error(`Error determining event type for ${slug}:`, error);
