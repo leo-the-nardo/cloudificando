@@ -31,18 +31,6 @@ jobs:
         with:
           aws-region: ${{ secrets.AWS_REGION }}
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          # inline-session-policy: >-
-          #   {
-          #     "Version": "2012-10-17",
-          #     "Statement": [
-          #       {
-          #         "Sid": "SSMReadAccess",
-          #         "Effect": "Allow",
-          #         "Action": "ssm:GetParameter",
-          #         "Resource": "arn:aws:ssm:*:${{ secrets.AWS_ACCOUNT_ID }}:parameter/${{ secrets.GCP_TOPIC_PARAMETER_PATH }}"
-          #       }
-          #     ]
-          #   }
 
       - name: Fetch GCP Topic Name from SSM
         id: fetch-topic-name
