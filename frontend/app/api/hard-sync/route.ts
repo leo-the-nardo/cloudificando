@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { getPostData } from "../../../lib/posts";
+import { invalidateCloudFrontPaths } from "@/lib/opennext";
 type PostData = {
   title: string;
   tags: string[];
@@ -16,7 +17,8 @@ export async function POST(req: NextRequest) {
   }
   try {
     await performHardSync()
-    revalidatePath("/*")
+    revalidatePath("/", "layout")
+    invalidateCloudFrontPaths(["/*"])
   }catch (e){
     return NextResponse.error()
   }
@@ -41,7 +43,6 @@ async function performHardSync(): Promise<void> {
     .filter((file: { type: string, name: string }) => file.type === 'file' && file.name.endsWith('.mdx'))
     .map((file: { name: string }) => file.name.replace('.mdx', ''));
 
-  // Step 2: Fetch and transform each post into the required format
   const posts: PostData[] = [];
 
   for (const slug of slugs) {
@@ -66,8 +67,6 @@ async function performHardSync(): Promise<void> {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({posts}),
-    // mode: "cors"
-    // mode: "no-cors"
   });
 
   if (!syncResponse.ok) {
@@ -80,7 +79,6 @@ async function performHardSync(): Promise<void> {
 }
 
 async function validateApiToken(req: NextRequest) {
-  //VALIDATE AUTH HEADER AND ENVIRONMENT GCP PUB SUB
   if (process.env.ENVIRONMENT === "dev") {
     return true;
   }

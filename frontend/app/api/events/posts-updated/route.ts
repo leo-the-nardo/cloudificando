@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { OAuth2Client } from "google-auth-library";
 import { revalidatePath } from "next/cache";
+import { invalidateCloudFrontPaths } from "@/lib/opennext";
 
 const client = new OAuth2Client();
 type EventPostUpdatedRequest = {
@@ -38,15 +39,20 @@ export async function POST(req: NextRequest) {
   switch (eventType) {
     case "POST_DELETED":
       revalidatePath(`/posts/${slug}`);
+      revalidatePath("/");
+      await invalidateCloudFrontPaths(["/posts", "/"]);
       break;
     case "POST_CREATED":
       revalidatePath("/");
+      await invalidateCloudFrontPaths(["/"]);
       break;
     case "CONTENT_UPDATED":
       revalidatePath(`/posts/${slug}`);
+      await invalidateCloudFrontPaths([`/posts/${slug}`]);
       break;
     case "META_UPDATED":
       revalidatePath("/");
+      await invalidateCloudFrontPaths(["/"]);
       break;
     // default
     default:
@@ -66,7 +72,7 @@ async function validatePubSubAuth(req: NextRequest) {
     return false;
   }
   const idToken = authHeader.split(" ")[1]; // Extract the token from "Bearer <token>"
-  const audience = process.env.GCP_PROJECT_ID;
+  const audience = `https://${process.env.PROD_DOMAIN}/api/events/posts-updated`;
   try {
     await client.verifyIdToken({ idToken, audience });
   } catch (error) {
