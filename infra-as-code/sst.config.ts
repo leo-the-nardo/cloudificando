@@ -1,7 +1,5 @@
 /// <reference path="./.sst/platform/config.d.ts" />
 
-import { execSync } from "child_process";
-
 export default $config({
   app(input) {
     return {

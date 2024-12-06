@@ -24,6 +24,11 @@ export const pubsubTopic = new gcp.pubsub.Topic("posts-updated-topic", {
     schema: pubsubSchema.id
   }
  });
+export const ssmPubsubTopic = new aws.ssm.Parameter("pubsub-topic-name", {
+  name: "/cloudificando/common/pubsub-topic-name",
+  type: "String",
+  value: pubsubTopic.id,
+})
 export const zone = (await cloudflare.getZone({name: "cloudificando.com"}))
 export const cacheBypass = new cloudflare.Ruleset("cloudflare-cache-bypass", {
   phase: "http_request_cache_settings",

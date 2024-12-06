@@ -1,5 +1,5 @@
 import { pubsubTopic } from "./sst.common";
-
+const cloudfrontSsmDistroIdPath = "/cloudificando/frontend/cloudfront/distribution-id";
 const frontend = new sst.aws.Nextjs("CloudificandoFrontend", {
   domain: {
     name: process.env.FRONTEND_PROD_DOMAIN!,
@@ -7,6 +7,14 @@ const frontend = new sst.aws.Nextjs("CloudificandoFrontend", {
     //@ts-ignore
     dns: sst.cloudflare.dns({proxy: true})
   },
+  permissions: [
+    {
+      actions: ["ssm:GetParameter"],
+      resources: [
+      `arn:aws:ssm:${process.env.AWS_REGION}:${process.env.AWS_ACCOUNT_ID}:parameter${cloudfrontSsmDistroIdPath}`,
+      ],
+    }
+  ],
   invalidation: {
     paths: "all"
   },
@@ -26,8 +34,11 @@ const frontend = new sst.aws.Nextjs("CloudificandoFrontend", {
     OTEL_EXPORTER_OTLP_ENDPOINT: process.env.OTEL_EXPORTER_OTLP_ENDPOINT!,
     OTEL_EXPORTER_OTLP_PROTOCOL: process.env.OTEL_EXPORTER_OTLP_PROTOCOL!,
     OTEL_RESOURCE_ATTRIBUTES: process.env.OTEL_RESOURCE_ATTRIBUTES!,
-    ENVIROMENT: process.env.ENVIRONMENT!,
-    OTEL_EXPORTER_OTLP_HEADERS: process.env.OTEL_EXPORTER_OTLP_HEADERS!
+    ENVIRONMENT: process.env.ENVIRONMENT!,
+    OTEL_EXPORTER_OTLP_HEADERS: process.env.OTEL_EXPORTER_OTLP_HEADERS!,
+    GCP_PROJECT_ID: process.env.GCP_PROJECT_ID!,
+    API_KEY: process.env.API_KEY!,
+    SSM_CLOUDFRONT_DISTRIBUTION_ID_PATH: cloudfrontSsmDistroIdPath,
   },
   path: "../frontend"
 });
@@ -46,4 +57,15 @@ const frontendSub = new gcp.pubsub.Subscription("posts-updated-subscription", {
     maximumBackoff: "30s",
   },
 });
+frontend.nodes.cdn.nodes.distribution.id.apply((id) => {
+  new aws.ssm.Parameter(
+    cloudfrontSsmDistroIdPath,
+    {
+      name: cloudfrontSsmDistroIdPath,
+      type: "String",
+      value: id,
+    },
+  );
+});
+
 export {}
