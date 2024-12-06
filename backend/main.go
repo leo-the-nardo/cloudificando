@@ -3,6 +3,10 @@ package main
 
 import (
 	"context"
+	"log"
+	"log/slog"
+	"os"
+
 	aws "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/cloudfront"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -11,9 +15,6 @@ import (
 	slogmulti "github.com/samber/slog-multi"
 	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
-	"log"
-	"log/slog"
-	"os"
 )
 
 func main() {
@@ -53,21 +54,16 @@ func main() {
 	router := gin.New()
 	// Register Global middlewares
 	router.Use(OtelGinMiddleware())
+	slog.InfoContext(ctx, "Allowed origins", "Origins", os.Getenv("ALLOWED_ORIGINS"))
+	//router.Use(CorsMiddleware(strings.Split(os.Getenv("ALLOWED_ORIGINS"), ","))) //todo: understand why duplicate cors headers are being sent
 	router.Use(CdnCacheMiddleware())
-	router.Use(CorsMiddleware())
 	// Register endpoints
 	router.GET("/blog/posts", blogController.GetPostsHandler)
 	router.GET("/blog/tags", blogController.GetTagsHandler)
 	router.PUT("/blog/posts", blogController.UpsertPostHandler)
-	router.POST("/blog/events/posts-updated", GcpPubSubMiddleware(), blogController.UpsertPostHandler)
+	router.POST("/blog/events/posts-updated", GcpPubSubAuthMiddleware(), blogController.PostsUpdatedGcpSubscriptionHandler)
 	router.DELETE("/blog/posts/:slug", blogController.DeletePostHandler)
-	router.POST("/blog/posts/hardsync", blogController.HardSyncHandler)
-	// Run the migrations
-	err = migration.EnsureDbMigrations(ctx)
-	if err != nil {
-		slog.ErrorContext(ctx, "Failed to run migrations", "Error", err)
-		log.Fatal(err)
-	}
-	// Run the server
+	router.POST("/blog/hardsync", blogController.HardSyncHandler)
+
 	router.Run()
 }

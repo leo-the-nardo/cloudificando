@@ -31,18 +31,21 @@ func NewBlogRepository(ctx context.Context, db *dynamodb.Client, tn string, cdn 
 	*BlogRepository, error,
 ) {
 	ssmDistroIdPath := os.Getenv("AWS_SSM_CLOUDFRONT_DISTRO_ID_PATH")
-	cloudfrontDistroId, err := ps.GetParameter(ctx, &ssm.GetParameterInput{
-		Name: &ssmDistroIdPath,
-	})
-	if err != nil {
-		slog.ErrorContext(ctx, "Failed to get cloudfront distro id parameter", "Error", err)
-		return nil, err
+	var cloudfrontDistroId string
+	if os.Getenv("ENVIRONMENT") == "production" {
+		cloudfrontDistroIdParam, err := ps.GetParameter(ctx, &ssm.GetParameterInput{
+			Name: &ssmDistroIdPath,
+		})
+		if err != nil {
+			slog.ErrorContext(ctx, "Failed to get cloudfront distro id parameter", "Error", err)
+			return nil, err
+		}
+		cloudfrontDistroId = *cloudfrontDistroIdParam.Parameter.Value
 	}
-
 	return &BlogRepository{
 		Db:                 db,
 		tableName:          tn,
-		cloudfrontDistroId: *cloudfrontDistroId.Parameter.Value,
+		cloudfrontDistroId: cloudfrontDistroId,
 		cdn:                cdn,
 	}, nil
 }
@@ -462,7 +465,7 @@ func (r *BlogRepository) InvalidateCdnCache(ctx context.Context, path string) er
 	}
 
 	// Send the invalidation request
-	output, err := cdn.CreateInvalidation(context.TODO(), invalidationInput)
+	output, err := cdn.CreateInvalidation(ctx, invalidationInput)
 	if err != nil {
 		return fmt.Errorf("failed to create invalidation: %w", err)
 	}

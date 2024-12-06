@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     case "POST_DELETED":
       revalidatePath(`/posts/${slug}`);
       revalidatePath("/");
-      await invalidateCloudFrontPaths(["/posts", "/"]);
+      await invalidateCloudFrontPaths([`/posts/${slug}`, "/"]);
       break;
     case "POST_CREATED":
       revalidatePath("/");

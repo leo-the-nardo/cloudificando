@@ -4,10 +4,11 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/gin-gonic/gin"
 	"log/slog"
 	"strconv"
+
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/gin-gonic/gin"
 )
 
 type BlogController struct {
@@ -35,7 +36,7 @@ func (bc *BlogController) GetPostsHandler(c *gin.Context) {
 	tag := c.DefaultQuery("tag", "")
 
 	limit, err := strconv.Atoi(limitStr)
-	if err != nil || limit < 1 || limit > 100 { // Increased max limit for flexibility
+	if err != nil || limit < 1 || limit > 6 {
 		c.AbortWithStatusJSON(400, gin.H{
 			"error": "Invalid limit",
 		})
@@ -72,6 +73,7 @@ func (bc *BlogController) PostsUpdatedGcpSubscriptionHandler(c *gin.Context) {
 
 	// Bind JSON payload
 	if err := c.ShouldBindJSON(&event); err != nil {
+		slog.ErrorContext(ctx, "Invalid request payload", "Error", err)
 		c.AbortWithStatusJSON(400, gin.H{
 			"error": "Invalid request payload",
 		})
@@ -194,7 +196,7 @@ func (bc *BlogController) DeletePostHandler(c *gin.Context) {
 }
 
 func (bc *BlogController) HardSyncHandler(c *gin.Context) {
-	migration := bc.migration
+	//migration := bc.migration
 	repository := bc.repository
 	ctx := c.Request.Context()
 	var body HardSyncRequest
@@ -204,24 +206,24 @@ func (bc *BlogController) HardSyncHandler(c *gin.Context) {
 		})
 		return
 	}
-
-	err := migration.Down(ctx)
-	if err != nil {
-		slog.ErrorContext(ctx, "Failed to run migrations", "Error", err)
-		c.AbortWithStatusJSON(500, gin.H{
-			"error": "Unexpected error",
-		})
-		return
-	}
-	err = migration.Up(ctx)
-	if err != nil {
-		slog.ErrorContext(ctx, "Failed to run migrations", "Error", err)
-		c.AbortWithStatusJSON(500, gin.H{
-			"error": "Unexpected error",
-		})
-		return
-	}
-	err = repository.UpsertPostsBatch(ctx, body.Posts)
+	// TODO: this makes big downtime, refactor to delete all items instead of dropping table
+	//err := migration.Down(ctx)
+	//if err != nil {
+	//	slog.ErrorContext(ctx, "Failed to run migrations", "Error", err)
+	//	c.AbortWithStatusJSON(500, gin.H{
+	//		"error": "Unexpected error",
+	//	})
+	//	return
+	//}
+	//err = migration.Up(ctx)
+	//if err != nil {
+	//	slog.ErrorContext(ctx, "Failed to run migrations", "Error", err)
+	//	c.AbortWithStatusJSON(500, gin.H{
+	//		"error": "Unexpected error",
+	//	})
+	//	return
+	//}
+	err := repository.UpsertPostsBatch(ctx, body.Posts)
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to upsert posts", "Error", err)
 		c.AbortWithStatusJSON(500, gin.H{
@@ -232,4 +234,5 @@ func (bc *BlogController) HardSyncHandler(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"message": "ok",
 	})
+	_ = repository.InvalidateCdnCache(ctx, "/blog/*")
 }

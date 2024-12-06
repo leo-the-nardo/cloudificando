@@ -6,9 +6,8 @@ import "net/http"
 type EventPostUpdatedRequest struct {
 	Message struct {
 		Data        string `json:"data" binding:"required"`
-		MessageId   string `json:"message_id" binding:"required"`
+		MessageId   string `json:"message_id" binding:"required"` // Post json Base 64 encoded
 		PublishTime string `json:"publish_time" binding:"required"`
-		OrderingKey string `json:"ordering_key"`
 		Attributes  struct {
 			EventType string `json:"eventType" binding:"required"` // "POST_CREATED" ,"POST_DELETED", "CONTENT_UPDATED", "META_UPDATED"
 			Slug      string `json:"slug" binding:"required"`
@@ -16,6 +15,14 @@ type EventPostUpdatedRequest struct {
 	} `json:"message" binding:"required"`
 	Subscription string `json:"subscription" binding:"required"`
 }
+type Post struct {
+	Title       string   `json:"title" dynamodbav:"title" binding:"required"`
+	Tags        []string `json:"tags" dynamodbav:"tags" binding:"required"`
+	CreatedAt   string   `json:"created_at" dynamodbav:"created_at" binding:"required"`
+	Description string   `json:"description" dynamodbav:"description" binding:"required"`
+	Slug        string   `json:"slug" dynamodbav:"slug" binding:"required"`
+}
+
 type HardSyncRequest struct {
 	Posts []Post `json:"posts" binding:"required"`
 }
@@ -32,14 +39,6 @@ func BadRequestError(message string) *RestError {
 		Status:  http.StatusBadRequest,
 		Error:   "Invalid Request",
 	}
-}
-
-type Post struct {
-	Title       string   `json:"title" dynamodbav:"title" binding:"required"`
-	Tags        []string `json:"tags" dynamodbav:"tags" binding:"required"`
-	CreatedAt   string   `json:"created_at" dynamodbav:"created_at" binding:"required"`
-	Description string   `json:"description" dynamodbav:"description" binding:"required"`
-	Slug        string   `json:"slug" dynamodbav:"slug" binding:"required"`
 }
 
 type TagWithCount struct {

@@ -30,6 +30,7 @@ func (m *Migration) EnsureDbMigrations(ctx context.Context) error {
 			slog.ErrorContext(ctx, "Failed to create table", "Error", err)
 			return err
 		}
+		return nil
 	}
 	slog.InfoContext(ctx, "Table created", "tableName", m.TableName)
 	return nil
@@ -182,6 +183,7 @@ func (m *Migration) Down(ctx context.Context) error {
 	}
 	_, err := db.DeleteTable(ctx, deleteTableInput)
 	if err != nil {
+		slog.ErrorContext(ctx, "Failed to delete table", "Error", err)
 		// ignore if is not exists, otherwise return error
 		var resourceNotFoundException *types.ResourceNotFoundException
 		if !errors.As(err, &resourceNotFoundException) {

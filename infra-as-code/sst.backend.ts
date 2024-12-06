@@ -49,6 +49,12 @@ const backend = new sst.aws.Function("MyFunction", {
     {
       actions: ["dynamodb:CreateTable","dynamodb:DeleteTable"],
       resources: [ "*"],
+    },
+    {
+      actions: ["cloudfront:CreateInvalidation"],
+      resources: [
+        `arn:aws:cloudfront::${process.env.AWS_ACCOUNT_ID}:distribution/*`,
+      ],
     }
   ],
   link: [dynamo, pubsubTopic],

@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   try {
     await performHardSync()
     revalidatePath("/", "layout")
-    invalidateCloudFrontPaths(["/*"])
+    await invalidateCloudFrontPaths(["/*"])
   }catch (e){
     return NextResponse.error()
   }
