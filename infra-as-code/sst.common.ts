@@ -25,11 +25,12 @@ export const pubsubTopic = new gcp.pubsub.Topic("posts-updated-topic", {
   }
  });
 export const ssmPubsubTopic = new aws.ssm.Parameter("pubsub-topic-name", {
-  name: "/cloudificando/common/pubsub-topic-name",
+  name: process.env.SST_COMMON_PUBSUB_TOPIC_NAME_SSM_DEST!,
   type: "String",
   value: pubsubTopic.id,
 })
-export const zone = (await cloudflare.getZone({name: "cloudificando.com"}))
+const ROOT_DOMAIN = process.env.ROOT_DOMAIN!
+export const zone = (await cloudflare.getZone({name: ROOT_DOMAIN}))
 export const cacheBypass = new cloudflare.Ruleset("cloudflare-cache-bypass", {
   phase: "http_request_cache_settings",
   description: "Bypass cloudflar ecache for the blog api due cloudfront handles caches",
@@ -43,7 +44,7 @@ export const cacheBypass = new cloudflare.Ruleset("cloudflare-cache-bypass", {
         cache: false,
       },
       enabled: true,
-      expression: `http.request.full_uri wildcard "https://api.cloudificando.com/*" or http.request.full_uri wildcard "https://cloudificando.com/*" or http.request.full_uri wildcard "https://blog.cloudificando.com/*"`,
+      expression: `http.request.full_uri wildcard "https://api.${ROOT_DOMAIN}/*" or http.request.full_uri wildcard "https://${ROOT_DOMAIN}/*" or http.request.full_uri wildcard "https://blog.${ROOT_DOMAIN}/*"`,
     },
   ],
 });

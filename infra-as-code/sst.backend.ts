@@ -1,7 +1,7 @@
 import { execSync } from "child_process";
 import { pubsubTopic } from "./sst.common";
 // const dynamo = sst.aws.Dynamo.get("BlogTable", "BlogTable");
-const cloudfrontSsmDistroIdPath = "/cloudificando/backend/cloudfront/distribution-id";
+const CLOUDFRONT_SSM_DISTRO_ID_PATH = process.env.SST_BACKEND_DISTROID_SSM_DEST!;
 const dynamo = new sst.aws.Dynamo("BlogTable", {
   transform: {
     table(table) {
@@ -34,7 +34,7 @@ execSync(build, {
   stdio: "inherit",
   cwd: "../backend"
 });
-const backend = new sst.aws.Function("MyFunction", {
+const backend = new sst.aws.Function("CloudificandoBackend", {
   runtime: "provided.al2023",
   handler: "bootstrap",
   bundle: "../backend/build",
@@ -43,7 +43,7 @@ const backend = new sst.aws.Function("MyFunction", {
     {
       actions: ["ssm:GetParameter"],
       resources: [
-        `arn:aws:ssm:${process.env.AWS_REGION}:${process.env.AWS_ACCOUNT_ID}:parameter${cloudfrontSsmDistroIdPath}`,
+        `arn:aws:ssm:${process.env.AWS_REGION}:${process.env.AWS_ACCOUNT_ID}:parameter${CLOUDFRONT_SSM_DISTRO_ID_PATH}`,
       ],
     },
     {
@@ -76,12 +76,12 @@ const backend = new sst.aws.Function("MyFunction", {
     OTLP_CLOUDIFICANDO_ENDPOINT: process.env.OTLP_CLOUDIFICANDO_ENDPOINT!,
     PROD_DOMAIN: process.env.BACKEND_PROD_DOMAIN!,
     ALLOWED_ORIGINS: process.env.BACKEND_ALLOWED_ORIGINS!,
-    AWS_SSM_CLOUDFRONT_DISTRO_ID_PATH: cloudfrontSsmDistroIdPath,
+    AWS_SSM_CLOUDFRONT_DISTRO_ID_PATH: CLOUDFRONT_SSM_DISTRO_ID_PATH,
     ENVIRONMENT: process.env.ENVIRONMENT!,
     GIN_MODE: "release",
   },
 });
-const backendCloudfront = new sst.aws.Router("MyRouter", {
+const backendCloudfront = new sst.aws.Router("CloudificandoBackendCloudfront", {
   domain: {
     name: process.env.BACKEND_PROD_DOMAIN!,
     dns: sst.cloudflare.dns({proxy: true}),
@@ -113,9 +113,9 @@ const backendSub = new gcp.pubsub.Subscription(
 );
 backendCloudfront.nodes.cdn.nodes.distribution.id.apply((id) => {
   new aws.ssm.Parameter(
-    cloudfrontSsmDistroIdPath,
+    CLOUDFRONT_SSM_DISTRO_ID_PATH,
     {
-      name: cloudfrontSsmDistroIdPath,
+      name: CLOUDFRONT_SSM_DISTRO_ID_PATH,
       type: "String",
       value: id,
     },

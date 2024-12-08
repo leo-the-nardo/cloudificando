@@ -1,10 +1,9 @@
 import { pubsubTopic } from "./sst.common";
-const cloudfrontSsmDistroIdPath = "/cloudificando/frontend/cloudfront/distribution-id";
+const cloudfrontSsmDistroIdPath = process.env.SST_FRONTEND_DISTROID_SSM_DEST!;
 const frontend = new sst.aws.Nextjs("CloudificandoFrontend", {
   domain: {
     name: process.env.FRONTEND_PROD_DOMAIN!,
     aliases: ["blog." + process.env.FRONTEND_PROD_DOMAIN!],
-    //@ts-ignore
     dns: sst.cloudflare.dns({proxy: true})
   },
   permissions: [
@@ -24,8 +23,6 @@ const frontend = new sst.aws.Nextjs("CloudificandoFrontend", {
     REVALIDATE_SECRET: process.env.REVALIDATE_SECRET!,
     NEXT_PUBLIC_BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL!,
     PROD_DOMAIN: process.env.FRONTEND_PROD_DOMAIN!,
-    GCP_TOPIC_NAME: process.env.GCP_TOPIC_NAME!,
-    GCP_SERVICE_ACCOUNT_EMAIL: process.env.GCP_SERVICE_ACCOUNT_EMAIL!,
     CONTENT_GITHUB_REPO: process.env.CONTENT_GITHUB_REPO!,
     CONTENT_GITHUB_BRANCH: process.env.CONTENT_GITHUB_BRANCH!,
     CONTENT_GITHUB_MDX_PATH: process.env.CONTENT_GITHUB_MDX_PATH!,
